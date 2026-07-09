@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tic-Tac-Toe vs AI — Minimax</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #141b33;
+    --line: #26304f;
+    --ink: #e8ecff;
+    --dim: #8b93b8;
+    --human: #4fd1c5;   /* teal — you (X) */
+    --robot: #f6ad55;   /* amber — AI (O) */
+    --win: #9ae6b4;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", system-ui, sans-serif;
+    background: radial-gradient(1200px 600px at 50% -10%, #1a2347 0%, var(--bg) 60%);
+    color: var(--ink);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .app { width: 100%; max-width: 420px; text-align: center; }
+
+  .eyebrow {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--dim); margin-bottom: 6px;
+  }
+  h1 { font-size: 26px; font-weight: 700; margin-bottom: 2px; }
+  h1 .x { color: var(--human); } h1 .o { color: var(--robot); }
+  .sub { color: var(--dim); font-size: 13px; margin-bottom: 20px; }
+
+  .scoreboard {
+    display: flex; gap: 8px; margin-bottom: 16px;
+  }
+  .score {
+    flex: 1; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 6px;
+  }
+  .score .label { font-size: 11px; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
+  .score .val { font-size: 22px; font-weight: 700; margin-top: 2px; }
+  .score.you .val { color: var(--human); }
+  .score.ai .val { color: var(--robot); }
+
+  .status {
+    min-height: 24px; font-size: 15px; margin-bottom: 14px; color: var(--ink);
+  }
+  .status.thinking { color: var(--robot); }
+  .status.thinking::after {
+    content: ""; display: inline-block; width: 1em; text-align: left;
+    animation: dots 1s steps(4, end) infinite;
+  }
+  @keyframes dots { 0% {content:"";} 25% {content:".";} 50% {content:"..";} 75% {content:"...";} }
+
+  .board {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    margin-bottom: 18px;
+  }
+  .cell {
+    aspect-ratio: 1; font-size: 44px; font-weight: 700;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    color: var(--ink); cursor: pointer;
+    transition: transform .08s ease, border-color .15s ease, background .15s ease;
+  }
+  .cell:hover:not(:disabled) { border-color: var(--human); transform: translateY(-2px); }
+  .cell:disabled { cursor: default; }
+  .cell.x { color: var(--human); }
+  .cell.o { color: var(--robot); }
+  .cell.win { background: #16321f; border-color: var(--win); }
+  .cell:focus-visible { outline: 2px solid var(--human); outline-offset: 2px; }
+
+  .controls { display: flex; gap: 8px; justify-content: center; }
+  button.btn {
+    font: inherit; font-size: 14px; padding: 10px 18px;
+    background: var(--panel); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+    transition: border-color .15s ease;
+  }
+  button.btn:hover { border-color: var(--human); }
+
+  .footer { margin-top: 18px; font-size: 12px; color: var(--dim); }
+  @media (prefers-reduced-motion: reduce) {
+    .cell, .status.thinking::after { transition: none; animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="eyebrow">Minimax algorithm demo</div>
+  <h1><span class="x">You</span> vs <span class="o">The Machine</span></h1>
+  <p class="sub">The AI searches every possible future before each move. Good luck — the best you can do is a draw.</p>
+
+  <div class="scoreboard">
+    <div class="score you"><div class="label">You (X)</div><div class="val" id="scoreYou">0</div></div>
+    <div class="score"><div class="label">Draws</div><div class="val" id="scoreDraw">0</div></div>
+    <div class="score ai"><div class="label">AI (O)</div><div class="val" id="scoreAI">0</div></div>
+  </div>
+
+  <div class="status" id="status">Your move. You're X.</div>
+
+  <div class="board" id="board"></div>
+
+  <div class="controls">
+    <button class="btn" id="restart">New round</button>
+    <button class="btn" id="aiFirst">Let AI go first</button>
+  </div>
+
+  <p class="footer" id="nodes"></p>
+</div>
+
+<script>
+  const HUMAN = "X", AI = "O";
+  const LINES = [
+    [0,1,2],[3,4,5],[6,7,8], // rows
+    [0,3,6],[1,4,7],[2,5,8], // cols
+    [0,4,8],[2,4,6]          // diagonals
+  ];
+
+  let board, gameOver, nodesVisited;
+  const boardEl = document.getElementById("board");
+  const statusEl = document.getElementById("status");
+  const nodesEl = document.getElementById("nodes");
+  const scores = { X: 0, O: 0, D: 0 };
+
+  // Build the 9 cells once
+  const cells = [];
+  for (let i = 0; i < 9; i++) {
+    const btn = document.createElement("button");
+    btn.className = "cell";
+    btn.setAttribute("aria-label", "Cell " + (i + 1));
+    btn.addEventListener("click", () => humanMove(i));
+    boardEl.appendChild(btn);
+    cells.push(btn);
+  }
+
+  function newRound(aiStarts = false) {
+    board = Array(9).fill(null);
+    gameOver = false;
+    nodesVisited = 0;
+    cells.forEach(c => { c.textContent = ""; c.disabled = false; c.className = "cell"; });
+    nodesEl.textContent = "";
+    if (aiStarts) {
+      setStatus("AI is thinking", true);
+      setTimeout(aiMove, 350);
+    } else {
+      setStatus("Your move. You're X.");
+    }
+  }
+
+  function setStatus(msg, thinking = false) {
+    statusEl.textContent = msg;
+    statusEl.className = "status" + (thinking ? " thinking" : "");
+  }
+
+  function winnerOf(b) {
+    for (const [a, m, z] of LINES) {
+      if (b[a] && b[a] === b[m] && b[a] === b[z]) return { player: b[a], line: [a, m, z] };
+    }
+    if (b.every(Boolean)) return { player: "draw", line: [] };
+    return null;
+  }
+
+  function humanMove(i) {
+    if (gameOver || board[i]) return;
+    place(i, HUMAN);
+    if (checkEnd()) return;
+    setStatus("AI is thinking", true);
+    lockBoard(true);
+    setTimeout(() => { aiMove(); lockBoard(false); }, 300);
+  }
+
+  function aiMove() {
+    if (gameOver) return;
+    nodesVisited = 0;
+    const move = bestMove(board);
+    place(move, AI);
+    nodesEl.textContent = "AI explored " + nodesVisited.toLocaleString() + " possible futures for that move.";
+    if (!checkEnd()) setStatus("Your move.");
+  }
+
+  function place(i, player) {
+    board[i] = player;
+    cells[i].textContent = player;
+    cells[i].classList.add(player.toLowerCase());
+    cells[i].disabled = true;
+  }
+
+  function lockBoard(lock) {
+    cells.forEach((c, i) => { if (!board[i]) c.disabled = lock; });
+  }
+
+  function checkEnd() {
+    const result = winnerOf(board);
+    if (!result) return false;
+    gameOver = true;
+    cells.forEach(c => c.disabled = true);
+    if (result.player === "draw") {
+      scores.D++;
+      setStatus("Draw. That's the best anyone can do.");
+    } else {
+      result.line.forEach(i => cells[i].classList.add("win"));
+      if (result.player === HUMAN) { scores.X++; setStatus("You won?! Check the code for bugs 😄"); }
+      else { scores.O++; setStatus("The machine wins this round."); }
+    }
+    document.getElementById("scoreYou").textContent = scores.X;
+    document.getElementById("scoreAI").textContent = scores.O;
+    document.getElementById("scoreDraw").textContent = scores.D;
+    return true;
+  }
+
+  /* ---------- Minimax with alpha-beta pruning ----------
+     The AI (O) is the maximizing player. Score:
+       +10 - depth  → AI wins (prefer faster wins)
+       depth - 10   → human wins (prefer slower losses)
+       0            → draw
+  ------------------------------------------------------ */
+  function bestMove(b) {
+    let bestScore = -Infinity, move = -1;
+    for (let i = 0; i < 9; i++) {
+      if (!b[i]) {
+        b[i] = AI;
+        const score = minimax(b, 0, false, -Infinity, Infinity);
+        b[i] = null;
+        if (score > bestScore) { bestScore = score; move = i; }
+      }
+    }
+    return move;
+  }
+
+  function minimax(b, depth, isMaximizing, alpha, beta) {
+    nodesVisited++;
+    const result = winnerOf(b);
+    if (result) {
+      if (result.player === AI) return 10 - depth;
+      if (result.player === HUMAN) return depth - 10;
+      return 0;
+    }
+    if (isMaximizing) {
+      let best = -Infinity;
+      for (let i = 0; i < 9; i++) {
+        if (!b[i]) {
+          b[i] = AI;
+          best = Math.max(best, minimax(b, depth + 1, false, alpha, beta));
+          b[i] = null;
+          alpha = Math.max(alpha, best);
+          if (beta <= alpha) break; // prune
+        }
+      }
+      return best;
+    } else {
+      let best = Infinity;
+      for (let i = 0; i < 9; i++) {
+        if (!b[i]) {
+          b[i] = HUMAN;
+          best = Math.min(best, minimax(b, depth + 1, true, alpha, beta));
+          b[i] = null;
+          beta = Math.min(beta, best);
+          if (beta <= alpha) break; // prune
+        }
+      }
+      return best;
+    }
+  }
+
+  document.getElementById("restart").addEventListener("click", () => newRound(false));
+  document.getElementById("aiFirst").addEventListener("click", () => newRound(true));
+  newRound();
+</script>
+</body>
+</html>
